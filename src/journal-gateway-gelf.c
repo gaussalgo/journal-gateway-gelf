@@ -42,6 +42,7 @@ static bool active = true;
 void *frontend, *router_control;
 char *source_journal_directory=NULL;
 char *gateway_socket_address = NULL;
+char *syslog_id = NULL;
 char *filter;
 sd_journal *j = NULL;
 
@@ -249,7 +250,7 @@ static char *get_key(const void *data) {
 }
 
 // returns 0 on sucess, json_entry_string has to be free'd by the caller
-int *get_entry_string(char** json_entry_string){
+int get_entry_string(char** json_entry_string){
     const void *data;
     json_t *message = json_object();
     assert(message);
@@ -266,6 +267,7 @@ int *get_entry_string(char** json_entry_string){
     const char *fn_sd_msg="MESSAGE",    *fn_gelf_msg="short_message";
     const char /**fn_sd_time="__REALTIME_TIMESTAMP",*/ *fn_gelf_time="timestamp";
     const char *fn_sd_prio="PRIORITY",  *fn_gelf_prio="level";
+    const char *fn_sd_id="SYSLOG_IDENTIFIER",  *fn_gelf_id="syslog_identifier";
 
     int rc = 0;
 
@@ -319,6 +321,20 @@ int *get_entry_string(char** json_entry_string){
     else{
         rc = json_object_set_new(message, fn_gelf_prio, json_integer(DEFAULT_PRIO));
         assert(rc == 0);
+    }
+    rc = sd_journal_get_data(j, fn_sd_id, &data, &length);
+    if (!rc){
+        char *v = get_value(data, length);
+        assert(v);
+        rc = json_object_set_new(message, fn_gelf_id, json_string(v));
+        assert(rc == 0);
+        if (syslog_id) {
+            if (*syslog_id != *v) {
+                free(v);
+                return -1;
+            }
+        }
+        free(v);
     }
 
     // get systemd journal meta fields cursor, realtime- and monotonic timestamp
@@ -421,9 +437,11 @@ static void *handler_routine () {
         /* try to send new entry if there is one */
         if( rc == 1 ){
             char *json_entry_string;
-            get_entry_string( &json_entry_string ); // json_entry_string has to be free'd
-            send_to_http(curl, json_entry_string);
-            free(json_entry_string);
+            int ret = get_entry_string( &json_entry_string ); // json_entry_string has to be free'd
+            if (ret != -1) {
+                send_to_http(curl, json_entry_string);
+                free(json_entry_string);
+            }
         }
         /* end of journal ? => wait indefinitely */
         else if ( rc == 0 ){
@@ -488,7 +506,7 @@ To set a socket to connect to a graylog2 server set the JOURNAL_GELF_REMOTE_TARG
                 return 0;
         }
     }
-
+    syslog_id = strdup_nullok(getenv(ENV_JOURNAL_SYSLOG_ID));
     source_journal_directory = strdup_nullok(getenv(ENV_JOURNAL_SOURCE_DIRECTORY));
     if (!(source_journal_directory)) {
         fprintf(stderr, "%s not specified.\n", ENV_JOURNAL_SOURCE_DIRECTORY);
@@ -520,6 +538,7 @@ To set a socket to connect to a graylog2 server set the JOURNAL_GELF_REMOTE_TARG
     //cleanup
     free(source_journal_directory);
     free(gateway_socket_address);
+    free(syslog_id);
 
     sd_journal_print(LOG_INFO, "...gateway stopped");
     return 0;

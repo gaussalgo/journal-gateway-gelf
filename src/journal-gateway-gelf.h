@@ -8,6 +8,7 @@
 #define ENV_SINCE_TIMESTAMP "JOURNAL_EXPORT_FROM"
 #define ENV_UNTIL_TIMESTAMP "JOURNAL_EXPORT_TO"
 #define ENV_BOOT "JOURNAL_EXPORT_BOOT_ID"
+#define ENV_JOURNAL_SYSLOG_ID "JOURNAL_SYSLOG_ID"
 
 /* definitions for internal communication between gateway and client */
 #define READY "\001"
